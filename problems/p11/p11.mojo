@@ -26,7 +26,29 @@ fn conv_1d_simple[
 ):
     global_i = block_dim.x * block_idx.x + thread_idx.x
     local_i = thread_idx.x
-    # FILL ME IN (roughly 14 lines)
+
+    # Allocate shared memory using tensor builder
+    shared_a = tb[dtype]().row_major[SIZE]().shared().alloc()
+    shared_b = tb[dtype]().row_major[CONV]().shared().alloc()
+    accum = tb[dtype]().row_major[1]().local().alloc()
+
+    # Load input data into shared memory
+    if global_i < SIZE:
+        shared_a[local_i] = a[global_i]
+
+    # Load kernel data into shared memory
+    if local_i < CONV:
+        shared_b[local_i] = b[local_i]
+
+    barrier()
+
+    accum[0] = 0
+    # Perform convolution
+    if global_i < SIZE:
+        for i in range(CONV):
+            if global_i + i < SIZE:
+                accum[0] += shared_a[local_i + i] * shared_b[i]
+        out[global_i] = accum[0]
 
 
 # ANCHOR_END: conv_1d_simple
@@ -51,6 +73,33 @@ fn conv_1d_block_boundary[
     global_i = block_dim.x * block_idx.x + thread_idx.x
     local_i = thread_idx.x
     # FILL ME IN (roughly 18 lines)
+    # Allocate shared memory using tensor builder
+    shared_a = tb[dtype]().row_major[TPB + CONV_2 - 1]().shared().alloc()
+    shared_b = tb[dtype]().row_major[CONV_2]().shared().alloc()
+    accum = tb[dtype]().row_major[1]().local().alloc()
+
+    # Load input data into shared memory
+    if global_i < SIZE_2:
+        shared_a[local_i] = a[global_i]
+
+    # Load the first CONV2-1 elements from next block
+    if local_i < CONV_2 - 1 and global_i + TPB < SIZE_2:
+        shared_a[local_i + TPB] = a[global_i + TPB]
+
+    # Load kernel data into shared memory
+    if local_i < CONV_2:
+        shared_b[local_i] = b[local_i]
+
+    barrier()
+
+    # Convolve
+    accum[0] = 0
+    # Perform convolution
+    if global_i < SIZE_2:
+        for i in range(CONV_2):
+            if local_i + i < TPB + CONV_2 - 1:
+                accum[0] += shared_a[local_i + i] * shared_b[i]
+        out[global_i] = accum[0]
 
 
 # ANCHOR_END: conv_1d_block_boundary
@@ -73,10 +122,14 @@ def main():
 
         if argv()[1] == "--simple":
             var out_tensor = LayoutTensor[mut=False, dtype, out_layout](
-                    out.unsafe_ptr()
-                    )
-            var a_tensor = LayoutTensor[mut=False, dtype, in_layout](a.unsafe_ptr())
-            var b_tensor = LayoutTensor[mut=False, dtype, conv_layout](b.unsafe_ptr())
+                out.unsafe_ptr()
+            )
+            var a_tensor = LayoutTensor[mut=False, dtype, in_layout](
+                a.unsafe_ptr()
+            )
+            var b_tensor = LayoutTensor[mut=False, dtype, conv_layout](
+                b.unsafe_ptr()
+            )
             ctx.enqueue_function[
                 conv_1d_simple[in_layout, out_layout, conv_layout]
             ](
@@ -90,10 +143,14 @@ def main():
             )
         elif argv()[1] == "--block-boundary":
             var out_tensor = LayoutTensor[mut=False, dtype, out_2_layout](
-                    out.unsafe_ptr()
-                    )
-            var a_tensor = LayoutTensor[mut=False, dtype, in_2_layout](a.unsafe_ptr())
-            var b_tensor = LayoutTensor[mut=False, dtype, conv_2_layout](b.unsafe_ptr())
+                out.unsafe_ptr()
+            )
+            var a_tensor = LayoutTensor[mut=False, dtype, in_2_layout](
+                a.unsafe_ptr()
+            )
+            var b_tensor = LayoutTensor[mut=False, dtype, conv_2_layout](
+                b.unsafe_ptr()
+            )
             ctx.enqueue_function[
                 conv_1d_block_boundary[
                     in_2_layout, out_2_layout, conv_2_layout, dtype
