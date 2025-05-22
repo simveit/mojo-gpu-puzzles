@@ -136,8 +136,6 @@ def main():
                 out_tensor,
                 a_tensor,
                 b_tensor,
-                size,
-                conv,
                 grid_dim=BLOCKS_PER_GRID,
                 block_dim=THREADS_PER_BLOCK,
             )
@@ -159,8 +157,6 @@ def main():
                 out_tensor,
                 a_tensor,
                 b_tensor,
-                size,
-                conv,
                 grid_dim=BLOCKS_PER_GRID_2,
                 block_dim=THREADS_PER_BLOCK_2,
             )
